@@ -1,0 +1,126 @@
+usage() {
+	local exitcode="${1-0}"
+	local reason="${2-}"
+
+	[[ ! -z "$reason" ]] && printf "%s: %s\n\n" "$SCRIPTNAME" "$reason"
+
+	# TODO: Specific options documentation here
+	cat <<EOF
+Usage: ${PURPLE-}$SCRIPTNAME${NOFORMAT-} [-EfhTv]
+
+${YELLOW-}Program description in one or some lines..${NOFORMAT-}
+
+Available options:
+
+   -E PYENV		Use Pyenv environment PYENV
+   -f			Force execution
+   -h			Print this help and exit
+   -T			Do not use colors
+   -v			Print script debug info
+EOF
+	exit "$exitcode"
+}
+
+cleanup() {
+	trap - SIGINT SIGTERM ERR EXIT
+	# TODO: script cleanup here
+}
+
+parse_params() {
+	# TODO: Default values of variables set from params
+	force=0
+	nocolors=0
+	pyenviron=
+	while getopts ":E:fhvT" o; do
+		case "${o}" in
+		E)
+			pyenviron=${OPTARG}
+			;;
+		f)
+			force=1
+			;;
+		h)
+			usage $EX_OK
+			;;
+		v)
+			set -x
+			;;
+		T)
+			nocolors=1
+			;;
+		:)
+			printf "Option \`%s' requires an argument.\n\n" "${OPTARG}"
+			usage $EX_USAGE
+			;;
+		*)
+			printf "Unknown option \`%s'.\n\n" "$o"
+			usage $EX_USAGE
+			;;
+		esac
+	done
+	shift $((OPTIND-1))
+	
+	argv=("$@")
+
+	# check required params and arguments
+	[[ ${#argv[@]} -eq 0 ]] || die "This script doesn't take arguments"
+	
+	return 0
+}
+
+parse_params "$@"
+setup_colors
+
+# -----------------------------------------------------------------------------
+# TODO: script logic here
+
+msg "${RED}Invocation parameters:$NOFORMAT"
+msg "(pyenv)    -E: $pyenviron"
+msg "(force)    -f: $force"
+msg "(nocolors) -T: $nocolors"
+msg "${RED}---$NOFORMAT"
+
+msg "${PURPLE}${BOLD}Moving to repository root directory$NOFORMAT"
+cd "$SCRIPTDIR"/..
+
+# TBH this is somewhat useless and here more for valued arguments showcase
+# than anything else
+if [[ ! -z "$pyenviron" ]]; then
+	msg "${PURPLE}${BOLD}Setting Pyenv environment$NOFORMAT"
+	pyenv local "$pyenviron"
+fi
+
+if (( ! "$force" )); then
+	msg "${PURPLE}${BOLD}Checking for virtualenv$NOFORMAT"
+	[[ -z "${VIRTUAL_ENV-}" ]] && {
+		msg "${CYAN}${BOLD}Warning !!! No virtualenv means you'll " \
+		    "install into a global Python installation$NOFORMAT"
+		msg "${CYAN}${BOLD}Do you want to continue ? [y/N]$NOFORMAT"
+		REPLY='n'
+		read -t20 -n1
+		case "$REPLY" in
+		y|Y)
+			;;
+		*)
+			die "Cancelling"
+			;;
+		esac
+	}
+fi
+
+msg "${PURPLE}${BOLD}Installing Python requirements (Ansible included)" \
+    "$NOFORMAT"
+pip3 install -r requirements.txt
+
+msg "${PURPLE}${BOLD}Installing Ansible requirements$NOFORMAT"
+if (( "$force" )); then
+	ansible-galaxy collection install -rf requirements.yaml
+else
+	ansible-galaxy collection install -r requirements.yaml
+fi
+
+msg "${PURPLE}${BOLD}Putting permissions$NOFORMAT"
+chmod 700 var
+chmod 600 etc/secrets.yaml
+
+# vim: set ft=bash:
